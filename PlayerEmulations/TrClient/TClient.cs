@@ -21,9 +21,9 @@ namespace TrClient
         public string CurRelease = "Terraria279";
         public string Username = "";
         public bool IsPlaying { get; private set; }
-        private short SpawnX;
-        private short SpawnY;
-
+        private int SpawnX;
+        private int SpawnY;
+        private bool SpawnSet = false;
         public short currentX;
         public short currentY;
 
@@ -104,7 +104,7 @@ namespace TrClient
             {
 
                 Context = PlayerSpawnContext.SpawningIntoWorld,
-                Position = new ShortPosition { X = x, Y = y },
+                Position = new ShortPosition { X = -1, Y = -1 },
 
             }) ;
         }
@@ -181,6 +181,8 @@ namespace TrClient
             {
                 if (!IsPlaying)
                 {
+                    //short fixedx = 33630;
+
                     this.SpawnX = data.SpawnX;
                     this.SpawnY = data.SpawnY;
                     this.currentX = data.SpawnX;
@@ -193,20 +195,13 @@ namespace TrClient
             });
             On<StartPlaying>(_ =>
             {
-                Spawn(this.SpawnX, this.SpawnY);
+                Spawn((short)this.SpawnX, (short)this.SpawnY);
 
                 
 
             });
-            On<PlayerActive>(_ =>
+            On<FinishedConnectingToServer>(_ =>
             {
-
-                Thread.Sleep(1000);
-                Console.WriteLine("bruh");
-                this.ChatText("bruh");
-                
-                this.TeleportPlayer(this.SpawnX, this.SpawnY);
-
             });
             On<PlayerHealth>(pkt=>{
                 this.ChatText("HEALTH IS " + pkt.StatLife.ToString());
@@ -216,8 +211,38 @@ namespace TrClient
             {
                 this.ChatText("THERE WAS AN ITEM PLACED AT " + pkt.Position.ToString());
             });
+            On((Action<UpdatePlayer>)(pkt =>
+            {
+                UpdateSpawn(pkt);
+            }));
+
+            void UpdateSpawn(UpdatePlayer pkt)
+            {
+                if (pkt.PlayerSlot == 0 && !this.SpawnSet)
+                {
+                    this.ChatText(this.Username.ToString() + " SET SPAWN to " + pkt.Position.X.ToString() + "," + pkt.Position.Y.ToString());
+                    this.SpawnX = (int)pkt.Position.X;
+                    this.SpawnY = (int)pkt.Position.Y;
+                    this.SpawnSet = true;
+                }
+            }
+            // event handler for when a chat message is received saying start work load when "start tel" is recived.
             
+            On<NetTextModuleS2C>(pkt =>
+            {
+                if (pkt.Text._text.Contains( "start tel"))
+                {
+                    this.ChatText("Starting teleport work load");
+                    // run teleport workload in a seperate thread for 10 seconds
+                    this.RunTeleportWorkLoad(10);
+
+
+                }
+            });
             
+
+
+
         }
 
         public bool connected = false;
@@ -233,12 +258,35 @@ namespace TrClient
             GameLoopInternal(password);
         }
 
+        public async void RunTeleportWorkLoad(int secs)
+        {
+            // Randomise Spawn time in milliseconds
+            Random rand = new Random();
+            int spawnTime = rand.Next(500, 1000);
+            var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(spawnTime));
+
+            while (await timer.WaitForNextTickAsync())
+            {
+                var xPos = this.SpawnX;
+                var yPos = this.SpawnY;
+                var rand1 = new Random();
+                var deltaX = ((float)rand1.NextDouble()) * 200;
+                var newXPos = (rand.NextDouble() >= 0.5) ? xPos + deltaX : xPos - deltaX;
+                this.TeleportPlayer((int)newXPos, yPos);
+                this.ChatText("Teleported to " + newXPos + " " + yPos);
+                if (secs-- == 0)
+                {
+                    this.ChatText("Teleport workload finished");
+                    break;
+                }
+            }
+            timer.Dispose();
+           
+        }
+
         public void TeleportPlayer(int x, int y)
         {
-            // /
-            
 
-            // this.SpawnY = ((short)y);
             Send(new TogglePvp { PvpEnabled = true , PlayerSlot = this.PlayerSlot});
             // Send(new Reqes)
             this.ChatText("Teleported to " + x + " " + y);
